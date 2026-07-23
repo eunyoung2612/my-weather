@@ -14,7 +14,7 @@ WARN_MSG_URL = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def fetch_warnings(key: str, from_tmfc: str, to_tmfc: str, stn_id: str = ""):
+def fetch_warnings(key: str, from_tmfc: str, to_tmfc: str, stn_id: str):
     """기상특보통보문조회(getWthrWrnMsg) 결과를 리스트로 반환.
     응답 필드명이 문서마다 조금씩 다를 수 있어 dict를 그대로 반환하고
     화면에서 항목을 그대로 나열하는 방식으로 처리(필드명 불일치에 안전)."""
@@ -25,9 +25,8 @@ def fetch_warnings(key: str, from_tmfc: str, to_tmfc: str, stn_id: str = ""):
         "dataType": "JSON",
         "fromTmFc": from_tmfc,
         "toTmFc": to_tmfc,
+        "stnId": stn_id,
     }
-    if stn_id:
-        params["stnId"] = stn_id
 
     resp = requests.get(WARN_MSG_URL, params=params, timeout=10)
     resp.raise_for_status()
@@ -115,6 +114,11 @@ else:
     if not weather_key:
         st.sidebar.caption("⚠️ 아직 인증키가 없습니다. 나중에 Secrets에 weather_key로 등록하거나 여기에 입력하세요.")
 
+stn_id = st.sidebar.text_input(
+    "지점코드 (stnId)", value="108",
+    help="108=서울(전국 특보 대표 지점코드로 흔히 사용). 특정 지역 특보만 보고 싶으면 해당 지점코드로 변경하세요.",
+)
+
 st.sidebar.divider()
 st.sidebar.caption("자료: 기상청 기상특보 조회서비스, 전국그늘막쉼터표준데이터")
 
@@ -133,7 +137,7 @@ if not weather_key:
 else:
     try:
         with st.spinner("특보 정보를 불러오는 중..."):
-            warnings = fetch_warnings(weather_key, from_tmfc, to_tmfc)
+            warnings = fetch_warnings(weather_key, from_tmfc, to_tmfc, stn_id)
 
         if not warnings:
             st.success("조회 기간 내 발표된 기상특보가 없습니다.")
