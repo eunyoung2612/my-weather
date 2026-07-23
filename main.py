@@ -48,46 +48,6 @@ def fetch_warnings(key: str, from_tmfc: str, to_tmfc: str, stn_id: str):
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SHELTER_CSV_PATH = os.path.join(APP_DIR, "shade_shelters.csv")
 
-HEATWAVE_URL = "https://apis.data.go.kr/1741000/DaysHeatWavesMajorCitiesYear/getDaysHeatWavesMajorCitiesYearList"
-
-# 응답 필드명 -> 표에 쓸 도시명
-HEATWAVE_CITY_FIELDS = {
-    "lseoul": "서울",
-    "lgangneung": "강릉",
-    "ldaejeon": "대전",
-    "ldaegu": "대구",
-    "lgwangju": "광주",
-    "lbusan": "부산",
-}
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_heatwave_days(key: str, num_of_rows: int = 15):
-    """연도별 주요 도시 폭염일수 통계 조회(getDaysHeatWavesMajorCitiesYearList).
-    bas_yy를 생략하면 최근 연도들을 여러 건 반환."""
-    params = {
-        "ServiceKey": key,
-        "pageNo": "1",
-        "numOfRows": str(num_of_rows),
-        "type": "json",
-    }
-    resp = requests.get(HEATWAVE_URL, params=params, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-    header = data["response"]["header"]
-    # 이 API는 성공 코드가 '00'이 아니라 'INFO-0' 형식이라 둘 다 허용
-    if header.get("resultCode") not in ("00", "INFO-0"):
-        raise RuntimeError(f'{header.get("resultCode")}: {header.get("resultMsg")}')
-
-    body = data["response"]["body"]
-    items = body.get("items")
-    if not items:
-        return []
-    item = items.get("item", [])
-    if isinstance(item, dict):
-        item = [item]
-    return item
-
 
 @st.cache_data
 def load_shelters() -> pd.DataFrame:
@@ -155,28 +115,7 @@ else:
         st.sidebar.caption("⚠️ 아직 인증키가 없습니다. 나중에 Secrets에 weather_key로 등록하거나 여기에 입력하세요.")
 
 st.sidebar.divider()
-
-st.sidebar.header("🌡️ 폭염일수 API")
-try:
-    default_heatwave_key = st.secrets["heatwave_key"]
-except Exception:
-    default_heatwave_key = ""
-
-if default_heatwave_key:
-    st.sidebar.success("✅ 폭염일수 API 키가 Secrets에서 연결되었습니다.")
-    heatwave_key = default_heatwave_key
-else:
-    heatwave_key = st.sidebar.text_input(
-        "폭염일수 API 인증키",
-        type="password",
-        help="공공데이터포털 '행정안전부_통계연보_연도별 주요 도시 폭염 일수' 인증키. "
-             "Streamlit Cloud Secrets에 heatwave_key 라는 이름으로 등록하면 자동 연결됩니다.",
-    )
-    if not heatwave_key:
-        st.sidebar.caption("⚠️ 아직 인증키가 없습니다. 나중에 Secrets에 heatwave_key로 등록하거나 여기에 입력하세요.")
-
-st.sidebar.divider()
-st.sidebar.caption("자료: 기상청 기상특보 조회서비스, 행정안전부 통계연보, 전국그늘막쉼터표준데이터")
+st.sidebar.caption("자료: 기상청 기상특보 조회서비스, 전국그늘막쉼터표준데이터")
 
 STN_ID = "108"       # 서울
 REGION_LABEL = "서울"
@@ -246,44 +185,6 @@ else:
     except Exception as e:
         st.markdown(f"### 📍 {REGION_LABEL} 기상특보")
         st.error(f"특보 정보를 불러오지 못했습니다: {e}")
-
-st.divider()
-
-# --------------------------------------------------------------------------
-# 연도별 주요 도시 폭염일수
-# --------------------------------------------------------------------------
-st.markdown("### 🌡️ 연도별 주요 도시 폭염일수")
-st.caption("행정안전부 통계연보 · 폭염대책기간(5.20.~9.30.) 중 일 최고기온 33℃ 이상인 날의 수")
-
-if not heatwave_key:
-    st.info("사이드바에 폭염일수 API 인증키(heatwave_key)를 입력하면 표가 여기 표시됩니다.")
-else:
-    try:
-        with st.spinner("폭염일수 통계를 불러오는 중..."):
-            heatwave_records = fetch_heatwave_days(heatwave_key, num_of_rows=15)
-
-        if not heatwave_records:
-            st.info("조회된 폭염일수 통계가 없습니다.")
-        else:
-            rows = []
-            for r in heatwave_records:
-                row = {"연도": r.get("bas_yy", "-")}
-                for field, city_label in HEATWAVE_CITY_FIELDS.items():
-                    row[city_label] = r.get(field, "-")
-                row["전국일평균"] = r.get("anat_dd_avg", "-")
-                rows.append(row)
-
-            heatwave_df = pd.DataFrame(rows)
-            # 연도 기준 내림차순(최신 연도가 위로) 정렬 시도
-            try:
-                heatwave_df["연도"] = heatwave_df["연도"].astype(int)
-                heatwave_df = heatwave_df.sort_values("연도", ascending=False)
-            except Exception:
-                pass
-
-            st.dataframe(heatwave_df, use_container_width=True, hide_index=True)
-    except Exception as e:
-        st.error(f"폭염일수 통계를 불러오지 못했습니다: {e}")
 
 st.divider()
 
