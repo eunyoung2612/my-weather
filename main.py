@@ -87,7 +87,7 @@ st.caption(chart_caption)
 
 st.divider()
 
-if hasattr(st, "page_link"):
+try:
     st.page_link("pages/1_지도.py", label="지도에서 쉼터 위치 보기", icon="🗺️")
-else:
+except Exception:
     st.info("왼쪽 사이드바 메뉴에서 **지도** 페이지를 선택하면 위치를 지도로 볼 수 있습니다.")
