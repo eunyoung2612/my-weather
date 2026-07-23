@@ -4,9 +4,47 @@
 """
 
 import os
+from datetime import datetime, timedelta
 
 import pandas as pd
+import requests
 import streamlit as st
+
+WARN_MSG_URL = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg"
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_warnings(key: str, from_tmfc: str, to_tmfc: str, stn_id: str = ""):
+    """기상특보통보문조회(getWthrWrnMsg) 결과를 리스트로 반환.
+    응답 필드명이 문서마다 조금씩 다를 수 있어 dict를 그대로 반환하고
+    화면에서 항목을 그대로 나열하는 방식으로 처리(필드명 불일치에 안전)."""
+    params = {
+        "ServiceKey": key,
+        "pageNo": "1",
+        "numOfRows": "20",
+        "dataType": "JSON",
+        "fromTmFc": from_tmfc,
+        "toTmFc": to_tmfc,
+    }
+    if stn_id:
+        params["stnId"] = stn_id
+
+    resp = requests.get(WARN_MSG_URL, params=params, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    header = data["response"]["header"]
+    if header["resultCode"] != "00":
+        raise RuntimeError(f'{header["resultCode"]}: {header["resultMsg"]}')
+
+    body = data["response"]["body"]
+    items = body.get("items")
+    if not items:
+        return []
+    item = items.get("item", [])
+    if isinstance(item, dict):
+        item = [item]
+    return item
+
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SHELTER_CSV_PATH = os.path.join(APP_DIR, "shade_shelters.csv")
@@ -57,7 +95,60 @@ else:
 
 st.sidebar.caption(f"선택된 지역 쉼터: {len(filtered):,}개")
 st.sidebar.divider()
-st.sidebar.caption("자료: 전국그늘막쉼터표준데이터")
+
+st.sidebar.header("🚨 기상특보 API")
+try:
+    default_weather_key = st.secrets["weather_key"]
+except Exception:
+    default_weather_key = ""
+
+if default_weather_key:
+    st.sidebar.success("✅ 특보 API 키가 Secrets에서 연결되었습니다.")
+    weather_key = default_weather_key
+else:
+    weather_key = st.sidebar.text_input(
+        "기상특보 API 인증키",
+        type="password",
+        help="공공데이터포털 '기상청_기상특보 조회서비스' 인증키. "
+             "Streamlit Cloud Secrets에 weather_key 라는 이름으로 등록하면 자동 연결됩니다.",
+    )
+    if not weather_key:
+        st.sidebar.caption("⚠️ 아직 인증키가 없습니다. 나중에 Secrets에 weather_key로 등록하거나 여기에 입력하세요.")
+
+st.sidebar.divider()
+st.sidebar.caption("자료: 기상청 기상특보 조회서비스, 전국그늘막쉼터표준데이터")
+
+# --------------------------------------------------------------------------
+# 기상특보 현황
+# --------------------------------------------------------------------------
+st.markdown("### 🚨 기상특보 현황")
+
+today = datetime.now()
+from_tmfc = (today - timedelta(days=3)).strftime("%Y%m%d")
+to_tmfc = today.strftime("%Y%m%d")
+st.caption(f"기상청 기상특보 조회서비스 · 조회기간 {from_tmfc} ~ {to_tmfc}")
+
+if not weather_key:
+    st.info("사이드바에 기상특보 API 인증키(weather_key)를 입력하면 최근 특보 내용이 여기 표시됩니다.")
+else:
+    try:
+        with st.spinner("특보 정보를 불러오는 중..."):
+            warnings = fetch_warnings(weather_key, from_tmfc, to_tmfc)
+
+        if not warnings:
+            st.success("조회 기간 내 발표된 기상특보가 없습니다.")
+        else:
+            for w in warnings:
+                title = w.get("title") or w.get("TITLE") or "제목 없음"
+                with st.expander(f"📢 {title}"):
+                    for k, v in w.items():
+                        if k in ("title", "TITLE") or v in (None, ""):
+                            continue
+                        st.markdown(f"**{k}**: {v}")
+    except Exception as e:
+        st.error(f"특보 정보를 불러오지 못했습니다: {e}")
+
+st.divider()
 
 # --------------------------------------------------------------------------
 # 요약 지표
@@ -86,6 +177,33 @@ st.bar_chart(chart_data)
 st.caption(chart_caption)
 
 st.divider()
+
+# --------------------------------------------------------------------------
+# 지정 8개 시도 그늘막 쉼터 통계
+# --------------------------------------------------------------------------
+st.markdown("### 🗾 8개 시도 그늘막 쉼터 개수")
+
+# 사용자가 지정한 표시 이름 -> CSV의 실제 시도명(최근 행정구역 개편 반영: 강원특별자치도, 전북특별자치도 등)
+REGION_MAP = {
+    "서울시": "서울특별시",
+    "경상북도": "경상북도",
+    "경상남도": "경상남도",
+    "강원도": "강원특별자치도",
+    "충청북도": "충청북도",
+    "충청남도": "충청남도",
+    "전라남도": "전라남도",
+    "전라북도": "전북특별자치도",
+}
+
+region_counts = pd.Series(
+    {label: int((shelters["시도명"] == actual).sum()) for label, actual in REGION_MAP.items()}
+)
+
+st.bar_chart(region_counts)
+
+region_df = region_counts.reset_index()
+region_df.columns = ["지역", "그늘막 쉼터 개수"]
+st.dataframe(region_df, use_container_width=True, hide_index=True)
 
 try:
     st.page_link("pages/1_지도.py", label="지도에서 쉼터 위치 보기", icon="🗺️")
