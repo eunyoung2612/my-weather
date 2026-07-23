@@ -22,7 +22,7 @@ from streamlit_folium import st_folium
 # --------------------------------------------------------------------------
 st.set_page_config(page_title="그늘막 쉼터 & 실시간 날씨", page_icon="⛱️", layout="wide")
 
-KMA_URL = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
+KMA_URL = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
 
 CATEGORY_LABELS = {
     "T1H": "기온(℃)",
