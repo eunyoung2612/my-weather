@@ -12,29 +12,6 @@ import streamlit as st
 
 WARN_MSG_URL = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg"
 
-# 지역명으로 선택할 수 있도록 하는 지점코드 매핑
-# (참고: 정확한 특보 지점코드표는 공공데이터포털 활용가이드에 별첨되어 있어, 실제 키로 테스트 후 필요시 조정하세요)
-REGION_STN_MAP = {
-    "전국(서울 대표)": "108",
-    "서울": "108",
-    "인천": "112",
-    "경기(수원)": "119",
-    "강원(강릉)": "105",
-    "강원(춘천)": "101",
-    "충북(청주)": "131",
-    "충남(대전)": "133",
-    "충남(서산)": "129",
-    "전북(전주)": "146",
-    "전남(광주)": "156",
-    "전남(목포)": "165",
-    "경북(대구)": "143",
-    "경북(안동)": "136",
-    "경남(부산)": "159",
-    "경남(진주)": "192",
-    "울산": "152",
-    "제주": "184",
-}
-
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_warnings(key: str, from_tmfc: str, to_tmfc: str, stn_id: str):
@@ -137,64 +114,69 @@ else:
     if not weather_key:
         st.sidebar.caption("⚠️ 아직 인증키가 없습니다. 나중에 Secrets에 weather_key로 등록하거나 여기에 입력하세요.")
 
-region_name = st.sidebar.selectbox(
-    "지역 선택", list(REGION_STN_MAP.keys()), index=0,
-    help="특보를 조회할 지역입니다. 내부적으로 기상청 지점코드로 변환됩니다.",
-)
-stn_id = REGION_STN_MAP[region_name]
-
-date_range = st.sidebar.date_input(
-    "조회 기간",
-    value=(datetime.now().date(), datetime.now().date()),
-    help="이 기간에 발표된 특보를 조회합니다. 기간이 길수록 결과가 많아집니다.",
-)
-
 st.sidebar.divider()
 st.sidebar.caption("자료: 기상청 기상특보 조회서비스, 전국그늘막쉼터표준데이터")
 
-# --------------------------------------------------------------------------
-# 기상특보 현황
-# --------------------------------------------------------------------------
-st.markdown("### 🚨 기상특보 현황")
+STN_ID = "108"       # 서울
+REGION_LABEL = "서울"
 
-# date_input이 범위 선택 중(끝 날짜 미선택)일 때는 튜플 길이가 1일 수 있음
-if isinstance(date_range, tuple) and len(date_range) == 2:
-    start_date, end_date = date_range
-else:
-    start_date = end_date = date_range if not isinstance(date_range, tuple) else date_range[0]
 
-from_tmfc = start_date.strftime("%Y%m%d")
-to_tmfc = end_date.strftime("%Y%m%d")
-st.caption(f"{region_name} · 조회기간 {from_tmfc} ~ {to_tmfc}")
+def format_tmfc(raw) -> str:
+    """'202607210800' 같은 발표시각 문자열을 'YYYY-MM-DD HH:MM' 형태로 변환. 형식이 다르면 원본 반환."""
+    raw = str(raw)
+    try:
+        if len(raw) >= 12:
+            return datetime.strptime(raw[:12], "%Y%m%d%H%M").strftime("%Y-%m-%d %H:%M")
+        if len(raw) >= 8:
+            return datetime.strptime(raw[:8], "%Y%m%d").strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    return raw
+
+
+# --------------------------------------------------------------------------
+# 기상특보 현황 (서울, 가장 최근 1건만)
+# --------------------------------------------------------------------------
+today = datetime.now()
+from_tmfc = (today - timedelta(days=3)).strftime("%Y%m%d")
+to_tmfc = today.strftime("%Y%m%d")
 
 if not weather_key:
+    st.markdown("### 🚨 기상특보 현황")
     st.info("사이드바에 기상특보 API 인증키(weather_key)를 입력하면 최근 특보 내용이 여기 표시됩니다.")
 else:
     try:
         with st.spinner("특보 정보를 불러오는 중..."):
-            warnings = fetch_warnings(weather_key, from_tmfc, to_tmfc, stn_id)
+            warnings = fetch_warnings(weather_key, from_tmfc, to_tmfc, STN_ID)
 
         if not warnings:
-            st.success("조회 기간 내 발표된 기상특보가 없습니다.")
+            st.markdown(f"### 📍 {REGION_LABEL} 기상특보")
+            st.success("현재 발표된 기상특보가 없습니다.")
         else:
-            st.caption(f"총 {len(warnings)}건")
-            for idx, w in enumerate(warnings, start=1):
-                # 응답 필드명 대소문자가 문서와 다를 수 있어 대소문자 구분 없이 'title' 키를 탐색
-                title_key = next((k for k in w if k.lower() == "title"), None)
-                title = (w.get(title_key) or "").strip() if title_key else ""
+            # 발표시각(tmFc) 기준으로 가장 최근 1건만 선택
+            def _tmfc_of(w):
+                k = next((k for k in w if k.lower() in ("tmfc", "tmef")), None)
+                return str(w.get(k, "")) if k else ""
 
-                if not title:
-                    # title이 비어있으면 발표시각 등 다른 정보로 대체 제목 구성
-                    tmfc_key = next((k for k in w if k.lower() in ("tmfc", "tmef")), None)
-                    tmfc_val = w.get(tmfc_key, "") if tmfc_key else ""
-                    title = f"특보 항목 {idx}" + (f" ({tmfc_val})" if tmfc_val else "")
+            latest = sorted(warnings, key=_tmfc_of, reverse=True)[0]
 
-                with st.expander(f"📢 {title}"):
-                    for k, v in w.items():
-                        if k == title_key or v in (None, ""):
-                            continue
-                        st.markdown(f"**{k}**: {v}")
+            tmfc_key = next((k for k in latest if k.lower() in ("tmfc", "tmef")), None)
+            tmfc_display = format_tmfc(latest.get(tmfc_key, "")) if tmfc_key else "시각 정보 없음"
+
+            title_key = next((k for k in latest if k.lower() == "title"), None)
+            title = (latest.get(title_key) or "").strip() if title_key else ""
+
+            st.markdown(f"### 📍 {REGION_LABEL} · 🕒 {tmfc_display}")
+
+            with st.container(border=True):
+                if title:
+                    st.markdown(f"**{title}**")
+                for k, v in latest.items():
+                    if k in (tmfc_key, title_key) or v in (None, ""):
+                        continue
+                    st.markdown(f"**{k}**: {v}")
     except Exception as e:
+        st.markdown(f"### 📍 {REGION_LABEL} 기상특보")
         st.error(f"특보 정보를 불러오지 못했습니다: {e}")
 
 st.divider()
@@ -253,8 +235,3 @@ st.bar_chart(region_counts)
 region_df = region_counts.reset_index()
 region_df.columns = ["지역", "그늘막 쉼터 개수"]
 st.dataframe(region_df, use_container_width=True, hide_index=True)
-
-try:
-    st.page_link("pages/1_지도.py", label="지도에서 쉼터 위치 보기", icon="🗺️")
-except Exception:
-    st.info("왼쪽 사이드바 메뉴에서 **지도** 페이지를 선택하면 위치를 지도로 볼 수 있습니다.")
