@@ -12,6 +12,29 @@ import streamlit as st
 
 WARN_MSG_URL = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg"
 
+# 지역명으로 선택할 수 있도록 하는 지점코드 매핑
+# (참고: 정확한 특보 지점코드표는 공공데이터포털 활용가이드에 별첨되어 있어, 실제 키로 테스트 후 필요시 조정하세요)
+REGION_STN_MAP = {
+    "전국(서울 대표)": "108",
+    "서울": "108",
+    "인천": "112",
+    "경기(수원)": "119",
+    "강원(강릉)": "105",
+    "강원(춘천)": "101",
+    "충북(청주)": "131",
+    "충남(대전)": "133",
+    "충남(서산)": "129",
+    "전북(전주)": "146",
+    "전남(광주)": "156",
+    "전남(목포)": "165",
+    "경북(대구)": "143",
+    "경북(안동)": "136",
+    "경남(부산)": "159",
+    "경남(진주)": "192",
+    "울산": "152",
+    "제주": "184",
+}
+
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_warnings(key: str, from_tmfc: str, to_tmfc: str, stn_id: str):
@@ -114,9 +137,16 @@ else:
     if not weather_key:
         st.sidebar.caption("⚠️ 아직 인증키가 없습니다. 나중에 Secrets에 weather_key로 등록하거나 여기에 입력하세요.")
 
-stn_id = st.sidebar.text_input(
-    "지점코드 (stnId)", value="108",
-    help="108=서울(전국 특보 대표 지점코드로 흔히 사용). 특정 지역 특보만 보고 싶으면 해당 지점코드로 변경하세요.",
+region_name = st.sidebar.selectbox(
+    "지역 선택", list(REGION_STN_MAP.keys()), index=0,
+    help="특보를 조회할 지역입니다. 내부적으로 기상청 지점코드로 변환됩니다.",
+)
+stn_id = REGION_STN_MAP[region_name]
+
+date_range = st.sidebar.date_input(
+    "조회 기간",
+    value=(datetime.now().date(), datetime.now().date()),
+    help="이 기간에 발표된 특보를 조회합니다. 기간이 길수록 결과가 많아집니다.",
 )
 
 st.sidebar.divider()
@@ -127,10 +157,15 @@ st.sidebar.caption("자료: 기상청 기상특보 조회서비스, 전국그늘
 # --------------------------------------------------------------------------
 st.markdown("### 🚨 기상특보 현황")
 
-today = datetime.now()
-from_tmfc = (today - timedelta(days=3)).strftime("%Y%m%d")
-to_tmfc = today.strftime("%Y%m%d")
-st.caption(f"기상청 기상특보 조회서비스 · 조회기간 {from_tmfc} ~ {to_tmfc}")
+# date_input이 범위 선택 중(끝 날짜 미선택)일 때는 튜플 길이가 1일 수 있음
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    start_date, end_date = date_range
+else:
+    start_date = end_date = date_range if not isinstance(date_range, tuple) else date_range[0]
+
+from_tmfc = start_date.strftime("%Y%m%d")
+to_tmfc = end_date.strftime("%Y%m%d")
+st.caption(f"{region_name} · 조회기간 {from_tmfc} ~ {to_tmfc}")
 
 if not weather_key:
     st.info("사이드바에 기상특보 API 인증키(weather_key)를 입력하면 최근 특보 내용이 여기 표시됩니다.")
@@ -142,11 +177,21 @@ else:
         if not warnings:
             st.success("조회 기간 내 발표된 기상특보가 없습니다.")
         else:
-            for w in warnings:
-                title = w.get("title") or w.get("TITLE") or "제목 없음"
+            st.caption(f"총 {len(warnings)}건")
+            for idx, w in enumerate(warnings, start=1):
+                # 응답 필드명 대소문자가 문서와 다를 수 있어 대소문자 구분 없이 'title' 키를 탐색
+                title_key = next((k for k in w if k.lower() == "title"), None)
+                title = (w.get(title_key) or "").strip() if title_key else ""
+
+                if not title:
+                    # title이 비어있으면 발표시각 등 다른 정보로 대체 제목 구성
+                    tmfc_key = next((k for k in w if k.lower() in ("tmfc", "tmef")), None)
+                    tmfc_val = w.get(tmfc_key, "") if tmfc_key else ""
+                    title = f"특보 항목 {idx}" + (f" ({tmfc_val})" if tmfc_val else "")
+
                 with st.expander(f"📢 {title}"):
                     for k, v in w.items():
-                        if k in ("title", "TITLE") or v in (None, ""):
+                        if k == title_key or v in (None, ""):
                             continue
                         st.markdown(f"**{k}**: {v}")
     except Exception as e:
