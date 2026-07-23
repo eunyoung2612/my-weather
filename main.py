@@ -3,9 +3,28 @@
 지도는 왼쪽 사이드바의 '지도' 페이지(pages/1_지도.py)로 분리했습니다.
 """
 
+import os
+
+import pandas as pd
 import streamlit as st
 
-from shelter_utils import load_shelters
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+SHELTER_CSV_PATH = os.path.join(APP_DIR, "shade_shelters.csv")
+
+
+@st.cache_data
+def load_shelters() -> pd.DataFrame:
+    if not os.path.exists(SHELTER_CSV_PATH):
+        st.error(
+            f"CSV 파일을 찾을 수 없습니다: `{SHELTER_CSV_PATH}`\n\n"
+            "GitHub 리포지토리에 `shade_shelters.csv` 파일이 "
+            "`main.py`와 같은 폴더(루트)에 커밋되어 있는지 확인해주세요."
+        )
+        st.stop()
+    df = pd.read_csv(SHELTER_CSV_PATH)
+    df = df.dropna(subset=["위도", "경도"])
+    return df
+
 
 st.set_page_config(page_title="그늘막 쉼터", page_icon="⛱️", layout="wide")
 
