@@ -153,28 +153,35 @@ else:
             st.markdown(f"### 📍 {REGION_LABEL} 기상특보")
             st.success("현재 발표된 기상특보가 없습니다.")
         else:
-            # 발표시각(tmFc) 기준으로 가장 최근 1건만 선택
-            def _tmfc_of(w):
-                k = next((k for k in w if k.lower() in ("tmfc", "tmef")), None)
-                return str(w.get(k, "")) if k else ""
+            # t5(발표시각, 예: 202607231830) 기준으로 가장 최근 1건만 선택
+            latest = sorted(warnings, key=lambda w: str(w.get("t5", "")), reverse=True)[0]
 
-            latest = sorted(warnings, key=_tmfc_of, reverse=True)[0]
-
-            tmfc_key = next((k for k in latest if k.lower() in ("tmfc", "tmef")), None)
-            tmfc_display = format_tmfc(latest.get(tmfc_key, "")) if tmfc_key else "시각 정보 없음"
-
-            title_key = next((k for k in latest if k.lower() == "title"), None)
-            title = (latest.get(title_key) or "").strip() if title_key else ""
+            tmfc_display = format_tmfc(latest.get("t5", ""))
+            title = (latest.get("t1") or "").strip()
+            summary = (latest.get("t2") or "").strip()
+            effective_info = (latest.get("t3") or "").strip()
+            related_status = (latest.get("t6") or "").strip()
+            note = (latest.get("t7") or "").strip()
 
             st.markdown(f"### 📍 {REGION_LABEL} · 🕒 {tmfc_display}")
 
             with st.container(border=True):
                 if title:
                     st.markdown(f"**{title}**")
-                for k, v in latest.items():
-                    if k in (tmfc_key, title_key) or v in (None, ""):
-                        continue
-                    st.markdown(f"**{k}**: {v}")
+                if summary and summary != title:
+                    st.markdown(summary)
+                if effective_info and effective_info not in (title, summary):
+                    st.caption(effective_info)
+                if note and "없음" not in note:
+                    st.markdown(f"**참고사항**: {note}")
+                if related_status:
+                    with st.expander("🔎 전국 특보 현황 보기 (첨부된 전국 요약)"):
+                        st.markdown(related_status)
+
+            st.caption(
+                f"발표번호 {latest.get('tmSeq', '-')} · 특보코드 {latest.get('warFc', '-')} · "
+                f"지점코드 {latest.get('stnId', '-')}"
+            )
     except Exception as e:
         st.markdown(f"### 📍 {REGION_LABEL} 기상특보")
         st.error(f"특보 정보를 불러오지 못했습니다: {e}")
