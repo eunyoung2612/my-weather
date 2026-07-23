@@ -163,7 +163,7 @@ else:
             related_status = (latest.get("t6") or "").strip()
             note = (latest.get("t7") or "").strip()
 
-            st.markdown(f"### 📍 {REGION_LABEL} · 🕒 {tmfc_display}")
+            st.markdown(f"### 🕒 {tmfc_display}")
 
             with st.container(border=True):
                 if title:
