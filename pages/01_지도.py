@@ -8,7 +8,6 @@ import os
 import folium
 import pandas as pd
 import streamlit as st
-from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 
 # 이 페이지는 pages/ 폴더 안에 있으므로, 리포지토리 루트(한 단계 위)에 있는 CSV를 가리킴
@@ -62,7 +61,7 @@ else:
 gugun_key = gugun if sido != "전체" else "전체"
 
 st.sidebar.caption(f"표시되는 그늘막 쉼터: {len(filtered):,}개")
-if len(filtered) > 3000:
+if len(filtered) > 1500:
     st.sidebar.warning("표시 개수가 많아 지도가 느려질 수 있어요. 시도/시군구를 좁혀보세요.")
 
 
@@ -82,7 +81,6 @@ def build_map(sido_key: str, gugun_key: str):
     zoom = 12 if gugun_key != "전체" else (11 if sido_key != "전체" else 7)
 
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom, tiles="OpenStreetMap")
-    cluster = MarkerCluster(disableClusteringAtZoom=15).add_to(m)
 
     for _, row in subset.iterrows():
         folium.CircleMarker(
@@ -93,7 +91,7 @@ def build_map(sido_key: str, gugun_key: str):
             fill=True,
             fill_color="#ff9933",
             fill_opacity=0.9,
-        ).add_to(cluster)
+        ).add_to(m)
 
     return m
 
