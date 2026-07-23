@@ -126,13 +126,48 @@ def build_map(sido_key: str, gugun_key: str):
     return m
 
 
+def get_default_view(sido_key: str, gugun_key: str):
+    subset = shelters
+    if sido_key != "전체":
+        subset = subset[subset["시도명"] == sido_key]
+        if gugun_key != "전체":
+            subset = subset[subset["시군구명"] == gugun_key]
+    center_lat = subset["위도"].mean() if len(subset) else 36.5
+    center_lon = subset["경도"].mean() if len(subset) else 127.5
+    zoom = 12 if gugun_key != "전체" else (11 if sido_key != "전체" else 7)
+    return [center_lat, center_lon], zoom
+
+
+# 클릭한 "내 위치"는 지역 필터가 바뀌어도 세션에 유지
+if "my_location" not in st.session_state:
+    st.session_state["my_location"] = None
+
+view_key = f"view_{sido}_{gugun_key}"
+if view_key not in st.session_state:
+    default_center, default_zoom = get_default_view(sido, gugun_key)
+    st.session_state[view_key] = {"center": default_center, "zoom": default_zoom}
+
 with col_map:
+    view = st.session_state[view_key]
     m = build_map(sido, gugun_key)
     map_state = st_folium(
         m, height=500, use_container_width=True,
-        returned_objects=["last_clicked"],
+        center=view["center"], zoom=view["zoom"],
+        returned_objects=["last_clicked", "center", "zoom"],
         key=f"map_{sido}_{gugun_key}",
     )
+
+    # 사용자가 이동/확대한 위치를 세션에 저장 → 다음 재실행 때도 그 자리 유지
+    if map_state and map_state.get("center") and map_state.get("zoom"):
+        st.session_state[view_key] = {
+            "center": [map_state["center"]["lat"], map_state["center"]["lng"]],
+            "zoom": map_state["zoom"],
+        }
+
+    # 클릭 위치를 세션에 저장 → 다른 조작으로 재실행돼도 "가까운 쉼터" 목록이 사라지지 않음
+    clicked = map_state.get("last_clicked") if map_state else None
+    if clicked:
+        st.session_state["my_location"] = (clicked["lat"], clicked["lng"])
 
     st.markdown("#### 📊 지역별 쉼터 개수")
     if sido == "전체":
@@ -147,13 +182,16 @@ with col_map:
 with col_side:
     st.subheader("📍 내 위치 기준 가까운 쉼터")
 
-    clicked = map_state.get("last_clicked") if map_state else None
+    my_location = st.session_state["my_location"]
 
-    if not clicked:
+    if not my_location:
         st.info("왼쪽 지도의 원하는 위치를 클릭하면 내 위치를 기준으로 가까운 쉼터를 찾아드려요.")
     else:
-        my_lat, my_lon = clicked["lat"], clicked["lng"]
+        my_lat, my_lon = my_location
         st.caption(f"선택한 위치: 위도 {my_lat:.5f}, 경도 {my_lon:.5f}")
+        if st.button("📍 위치 초기화"):
+            st.session_state["my_location"] = None
+            st.rerun()
 
         if len(filtered) == 0:
             st.warning("현재 선택된 지역에 쉼터가 없습니다.")
